@@ -154,7 +154,14 @@ class OpenAIServingCompletion:
             except ParameterError as e:
                 api_server_logger.error(f"OpenAIServingCompletion format error: {e}, {e.message}")
                 self.engine_client.semaphore.release()
-                return ErrorResponse(code=400, message=str(e.message), type="invalid_request", param=e.param)
+                return ErrorResponse(
+                    error=ErrorInfo(
+                        message=str(e.message),
+                        type=ErrorType.INVALID_REQUEST_ERROR,
+                        param=e.param,
+                        code=ErrorCode.INVALID_VALUE,
+                    )
+                )
             except Exception as e:
                 error_msg = f"OpenAIServingCompletion format error: {e}, {str(traceback.format_exc())}"
                 api_server_logger.error(error_msg)
