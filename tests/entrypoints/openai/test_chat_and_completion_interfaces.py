@@ -65,7 +65,9 @@ from fastdeploy.entrypoints.openai.protocol import (  # noqa: E402
     UsageInfo,
 )
 from fastdeploy.entrypoints.openai.serving_chat import OpenAIServingChat  # noqa: E402
-from fastdeploy.entrypoints.openai.serving_completion import OpenAIServingCompletion  # noqa: E402
+from fastdeploy.entrypoints.openai.serving_completion import (  # noqa: E402
+    OpenAIServingCompletion,
+)
 from fastdeploy.utils import ParameterError  # noqa: E402
 
 
@@ -195,9 +197,7 @@ def test_create_completion_non_stream(monkeypatch, engine_client, completion_han
     fake_response = CompletionResponse(
         id="cmpl-test",
         model="test-model",
-        choices=[
-            CompletionResponseChoice(index=0, text="hello", finish_reason="stop")
-        ],
+        choices=[CompletionResponseChoice(index=0, text="hello", finish_reason="stop")],
         usage=UsageInfo(prompt_tokens=3, completion_tokens=1, total_tokens=4),
     )
 
