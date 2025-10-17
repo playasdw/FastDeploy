@@ -353,6 +353,8 @@ elif paddle.is_compiled_with_cuda():
         "-Igpu_ops",
         "-Ithird_party/nlohmann_json/include",
     ]
+    worker_threads = os.cpu_count()
+    nvcc_compile_args += ["-t", str(worker_threads)]
 
     nvcc_version = get_nvcc_version()
     print(f"nvcc_version = {nvcc_version}")
@@ -377,6 +379,7 @@ elif paddle.is_compiled_with_cuda():
 
     if cc >= 80:
         # append_attention
+        os.system("python gpu_ops/append_attn/autogen_template_instantiation.py")
         sources += ["gpu_ops/append_attention.cu"]
         sources += find_end_files("gpu_ops/append_attn", ".cu")
         # mla

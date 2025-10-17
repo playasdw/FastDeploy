@@ -416,7 +416,7 @@ class Sampler(nn.Layer):
 
         if next_tokens.shape[0] != max_batch:
             dim = next_tokens.shape[-1]
-            tmp_tokens = paddle.full((max_batch, dim), -1, dtype=next_tokens.dtype)
+            tmp_tokens = paddle.full((max_batch, dim), -1 if local_rank == 0 else 0, dtype=next_tokens.dtype)
             tmp_tokens = paddle.scatter(tmp_tokens, batch_ids, next_tokens[: batch_ids.shape[0], :])
             return tmp_tokens
 
@@ -461,6 +461,7 @@ class SpeculativeSampler(nn.Layer):
         sampling_metadata: SamplingMetadata,
         max_model_len: int,
         share_inputs: List[paddle.Tensor],
+        accept_all_drafts: bool = False,
     ) -> paddle.Tensor:
         """ """
 
@@ -517,6 +518,7 @@ class SpeculativeSampler(nn.Layer):
             self.speculative_verify_window,
             True,  # enable_topp
             self.speculative_benchmark_mode,
+            accept_all_drafts,
         )
 
         return None
