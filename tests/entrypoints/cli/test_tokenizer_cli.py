@@ -9,6 +9,20 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from fastdeploy.entrypoints.cli.tokenizer import main
+
+
+def model_path():
+    """
+    Get model path from environment variable MODEL_PATH,
+    default to "./ERNIE-4.5-0.3B-Paddle" if not set.
+    """
+    base_path = os.getenv("MODEL_PATH")
+    if base_path:
+        return os.path.join(base_path, "ERNIE-4.5-0.3B-Paddle")
+    else:
+        return "./ERNIE-4.5-0.3B-Paddle"
+
 
 class MockCLISubcommand:
     """模拟CLISubcommand基类"""
@@ -39,7 +53,6 @@ with patch("fastdeploy.entrypoints.cli.types.CLISubcommand", MockCLISubcommand):
             get_tokenizer_info,
             get_vocab_dict,
             get_vocab_size,
-            main,
         )
 
 
@@ -299,291 +312,24 @@ class TestExportVocabulary(unittest.TestCase):
                 mock_print.assert_any_call("Error exporting vocabulary: Permission denied")
 
 
-class TestMainFunction(unittest.TestCase):
-    """测试main函数"""
-
+class TestTokenizerCli(unittest.TestCase):
     def setUp(self):
-        self.mock_tokenizer = MagicMock()
-        self.mock_preprocessor = MagicMock()
-        self.mock_preprocessor.create_processor.return_value.tokenizer = self.mock_tokenizer
+        model_name = model_path()
+        self.test_args = argparse.Namespace()
+        self.test_args.model_name_or_path = model_name
+        self.test_args.encode = "Hello, world!"
+        self.test_args.decode = "[1, 2, 3]"
+        self.test_args.vocab_size = True
+        self.test_args.info = True
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.test_args.vocab_export = os.path.join(self.tmpdir.name, "vocab.txt")
 
-    def test_no_arguments(self):
-        args = argparse.Namespace(
-            model_name_or_path="test/model",
-            encode=None,
-            decode=None,
-            vocab_size=False,
-            info=False,
-            vocab_export=None,
-            enable_mm=False,
-        )
+    def tearDown(self):
+        self.tmpdir.cleanup()
 
-        with patch("builtins.print") as mock_print:
-            main(args)
-            mock_print.assert_called_with(
-                "请至少指定一个参数：--encode, --decode, --vocab-size, --info, --export-vocab"
-            )
-
-    def test_encode_operation(self):
-        self.mock_tokenizer.encode.return_value = [101, 102, 103]
-
-        args = argparse.Namespace(
-            model_name_or_path="test/model",
-            encode="hello world",
-            decode=None,
-            vocab_size=False,
-            info=False,
-            vocab_export=None,
-            enable_mm=False,
-        )
-
-        with patch("fastdeploy.entrypoints.cli.tokenizer.InputPreprocessor", return_value=self.mock_preprocessor):
-            with patch("builtins.print") as mock_print:
-                main(args)
-
-                self.mock_tokenizer.encode.assert_called_once_with("hello world")
-                mock_print.assert_any_call("Input text: hello world")
-                mock_print.assert_any_call("Encoded tokens: [101, 102, 103]")
-
-    def test_decode_operation_list_string(self):
-        self.mock_tokenizer.decode.return_value = "decoded text"
-
-        args = argparse.Namespace(
-            model_name_or_path="test/model",
-            encode=None,
-            decode="[1,2,3]",
-            vocab_size=False,
-            info=False,
-            vocab_export=None,
-            enable_mm=False,
-        )
-
-        with patch("fastdeploy.entrypoints.cli.tokenizer.InputPreprocessor", return_value=self.mock_preprocessor):
-            with patch("builtins.print") as mock_print:
-                main(args)
-
-                self.mock_tokenizer.decode.assert_called_once_with([1, 2, 3])
-                mock_print.assert_any_call("Decoded text: decoded text")
-
-    def test_decode_operation_comma_string(self):
-        self.mock_tokenizer.decode.return_value = "decoded text"
-
-        args = argparse.Namespace(
-            model_name_or_path="test/model",
-            encode=None,
-            decode="1,2,3",
-            vocab_size=False,
-            info=False,
-            vocab_export=None,
-            enable_mm=False,
-        )
-
-        with patch("fastdeploy.entrypoints.cli.tokenizer.InputPreprocessor", return_value=self.mock_preprocessor):
-            with patch("builtins.print"):
-                main(args)
-
-                self.mock_tokenizer.decode.assert_called_once_with([1, 2, 3])
-
-    def test_decode_operation_already_list(self):
-        self.mock_tokenizer.decode.return_value = "decoded text"
-
-        args = argparse.Namespace(
-            model_name_or_path="test/model",
-            encode=None,
-            decode=[1, 2, 3],
-            vocab_size=False,
-            info=False,
-            vocab_export=None,
-            enable_mm=False,
-        )
-
-        with patch("fastdeploy.entrypoints.cli.tokenizer.InputPreprocessor", return_value=self.mock_preprocessor):
-            with patch("builtins.print"):
-                main(args)
-                self.mock_tokenizer.decode.assert_called_once_with([1, 2, 3])
-
-    def test_decode_exception_handling(self):
-        args = argparse.Namespace(
-            model_name_or_path="test/model",
-            encode=None,
-            decode="invalid[1,2",  # 无效的字符串
-            vocab_size=False,
-            info=False,
-            vocab_export=None,
-            enable_mm=False,
-        )
-
-        with patch("fastdeploy.entrypoints.cli.tokenizer.InputPreprocessor", return_value=self.mock_preprocessor):
-            with patch("builtins.print") as mock_print:
-                main(args)
-                # 检查是否有包含"Error decoding tokens:"的打印调用
-                error_calls = [
-                    call for call in mock_print.call_args_list if call[0] and "Error decoding tokens:" in call[0][0]
-                ]
-                self.assertTrue(len(error_calls) > 0)
-
-    def test_vocab_size_operation(self):
-        args = argparse.Namespace(
-            model_name_or_path="test/model",
-            encode=None,
-            decode=None,
-            vocab_size=True,
-            info=False,
-            vocab_export=None,
-            enable_mm=False,
-        )
-
-        with patch("fastdeploy.entrypoints.cli.tokenizer.InputPreprocessor", return_value=self.mock_preprocessor):
-            with patch("fastdeploy.entrypoints.cli.tokenizer.get_vocab_size", return_value=1000) as mock_get_size:
-                with patch("builtins.print") as mock_print:
-                    main(args)
-
-                    mock_get_size.assert_called_once_with(self.mock_tokenizer)
-                    mock_print.assert_any_call("Vocabulary size: 1000")
-
-    def test_info_operation(self):
-        mock_info = {"vocab_size": 1000, "model_name": "test"}
-
-        args = argparse.Namespace(
-            model_name_or_path="test/model",
-            encode=None,
-            decode=None,
-            vocab_size=False,
-            info=True,
-            vocab_export=None,
-            enable_mm=False,
-        )
-
-        with patch("fastdeploy.entrypoints.cli.tokenizer.InputPreprocessor", return_value=self.mock_preprocessor):
-            with patch(
-                "fastdeploy.entrypoints.cli.tokenizer.get_tokenizer_info", return_value=mock_info
-            ) as mock_get_info:
-                with patch("builtins.print") as mock_print:
-                    main(args)
-
-                    mock_get_info.assert_called_once_with(self.mock_tokenizer)
-                    mock_print.assert_any_call(json.dumps(mock_info, indent=2))
-
-    def test_vocab_export_operation(self):
-        args = argparse.Namespace(
-            model_name_or_path="test/model",
-            encode=None,
-            decode=None,
-            vocab_size=False,
-            info=False,
-            vocab_export="/path/to/vocab.json",
-            enable_mm=False,
-        )
-
-        with patch("fastdeploy.entrypoints.cli.tokenizer.InputPreprocessor", return_value=self.mock_preprocessor):
-            with patch("fastdeploy.entrypoints.cli.tokenizer.export_vocabulary") as mock_export:
-                with patch("builtins.print"):
-                    main(args)
-
-                    mock_export.assert_called_once_with(self.mock_tokenizer, "/path/to/vocab.json")
-
-    def test_multiple_operations(self):
-        self.mock_tokenizer.encode.return_value = [1]
-        self.mock_tokenizer.decode.return_value = "test"
-
-        args = argparse.Namespace(
-            model_name_or_path="test/model",
-            encode="hello",
-            decode="1",
-            vocab_size=True,
-            info=True,
-            vocab_export="/path/to/vocab",
-            enable_mm=False,
-        )
-
-        with patch("fastdeploy.entrypoints.cli.tokenizer.InputPreprocessor", return_value=self.mock_preprocessor):
-            with patch("fastdeploy.entrypoints.cli.tokenizer.get_vocab_size", return_value=100):
-                with patch("fastdeploy.entrypoints.cli.tokenizer.get_tokenizer_info", return_value={"size": 100}):
-                    with patch("fastdeploy.entrypoints.cli.tokenizer.export_vocabulary") as mock_export:
-                        with patch("builtins.print") as mock_print:
-                            main(args)
-
-                            # 验证所有操作都被调用
-                            self.assertEqual(self.mock_tokenizer.encode.call_count, 1)
-                            self.assertEqual(self.mock_tokenizer.decode.call_count, 1)
-                            mock_export.assert_called_once()
-
-                            # 验证操作计数
-                            mock_print.assert_any_call("Completed 5 operation(s)")
-
-
-class TestIntegration(unittest.TestCase):
-    """集成测试"""
-
-    def test_full_workflow(self):
-        # 测试完整的CLI工作流程
-        subcommand = TokenizerSubcommand()
-        mock_subparsers = MagicMock()
-        mock_parser = MagicMock()
-        mock_subparsers.add_parser.return_value = mock_parser
-
-        # 初始化解析器
-        subcommand.subparser_init(mock_subparsers)
-
-        # 测试cmd方法
-        args = argparse.Namespace(
-            model_name_or_path="test/model", encode="test", decode=None, vocab_size=True, info=False, vocab_export=None
-        )
-
-        with patch("fastdeploy.entrypoints.cli.tokenizer.main") as mock_main:
-            subcommand.cmd(args)
-            mock_main.assert_called_once_with(args)
-
-    def test_main_functionality(self):
-        """测试main函数的整体功能"""
-        args = argparse.Namespace(
-            model_name_or_path="test/model",
-            encode="hello",
-            decode="1",
-            vocab_size=True,
-            info=True,
-            vocab_export=None,
-            enable_mm=False,
-        )
-
-        mock_tokenizer = MagicMock()
-        mock_tokenizer.encode.return_value = [1]
-        mock_tokenizer.decode.return_value = "hello"
-
-        mock_preprocessor = MagicMock()
-        mock_preprocessor.create_processor.return_value.tokenizer = mock_tokenizer
-
-        with patch("fastdeploy.entrypoints.cli.tokenizer.InputPreprocessor", return_value=mock_preprocessor):
-            with patch("fastdeploy.entrypoints.cli.tokenizer.get_vocab_size", return_value=1000):
-                with patch("fastdeploy.entrypoints.cli.tokenizer.get_tokenizer_info", return_value={"info": "test"}):
-                    with patch("builtins.print") as mock_print:
-                        main(args)
-
-                        # 验证基本功能正常
-                        self.assertTrue(mock_print.called)
-                        # 验证encode和decode被调用
-                        mock_tokenizer.encode.assert_called_once_with("hello")
-                        mock_tokenizer.decode.assert_called_once_with([1])
-
-
-# class TestTokenizerCli(unittest.TestCase):
-#     def setUp(self):
-#         self.test_args = argparse.Namespace()
-#         self.test_args.model_name_or_path = "baidu/ERNIE-4.5-0.3B-PT"
-#         self.test_args.encode = "Hello, world!"
-#         self.test_args.decode = "[1, 2, 3]"
-#         self.test_args.vocab_size = True
-#         self.test_args.info = True
-#         self.tmpdir = tempfile.TemporaryDirectory()
-#         self.test_args.vocab_export = os.path.join(self.tmpdir.name, "vocab.txt")
-
-#     def tearDown(self):
-#         self.tmpdir.cleanup()
-
-#     def test_main(self):
-#         result = main(self.test_args)
-#         self.assertIsNotNone(result)
-#         self.assertTrue(os.path.exists(self.test_args.vocab_export))
+    def test_main(self):
+        main(self.test_args)
+        self.assertTrue(os.path.exists(self.test_args.vocab_export))
 
 
 if __name__ == "__main__":

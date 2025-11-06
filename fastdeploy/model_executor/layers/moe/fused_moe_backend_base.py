@@ -92,8 +92,18 @@ class MoEMethodBase(QuantMethodBase):
                 # for RL init model without deepep buff
                 return
             else:
-                self.ep_prefill_runner = self.EPPrefillRunner(**common_args)
-                self.ep_decoder_runner = self.EPDecoderRunner(**common_args)
+                if current_platform.is_cuda():
+                    self.ep_prefill_runner = self.EPPrefillRunner(
+                        **common_args,
+                        use_internode_ll_two_stage=layer.fd_config.parallel_config.use_internode_ll_two_stage,
+                    )
+                    self.ep_decoder_runner = self.EPDecoderRunner(
+                        **common_args,
+                        use_internode_ll_two_stage=layer.fd_config.parallel_config.use_internode_ll_two_stage,
+                    )
+                else:
+                    self.ep_prefill_runner = self.EPPrefillRunner(**common_args)
+                    self.ep_decoder_runner = self.EPDecoderRunner(**common_args)
             return
 
         # For non-mixed ep
@@ -175,12 +185,13 @@ class MoEMethodBase(QuantMethodBase):
         Paddle Cutlass compute Fused MoE.
         """
         if layer.ep_size > 1:
-            if layer.fd_config.model_config.moe_phase.phase == "prefill" and layer.layer_idx == 0:
-                if layer.fd_config.scheduler_config.splitwise_role == "mixed":
+            is_moe_start_layer = layer.layer_idx == layer.fd_config.model_config.moe_layer_start_index
+            if layer.fd_config.model_config.moe_phase.phase == "prefill":
+                if layer.fd_config.scheduler_config.splitwise_role == "mixed" and is_moe_start_layer:
                     self.ep_prefill_runner.clean_low_latency_buffer()
                 return self.apply_ep_prefill(layer, x, gate)
             else:
-                if layer.fd_config.scheduler_config.splitwise_role == "mixed" and layer.layer_idx == 0:
+                if layer.fd_config.scheduler_config.splitwise_role == "mixed" and is_moe_start_layer:
                     self.ep_decoder_runner.clean_low_latency_buffer()
                 return self.apply_ep_decode(layer, x, gate)
         else:
@@ -189,22 +200,16 @@ class MoEMethodBase(QuantMethodBase):
 
 class UnquantizedFusedMoEMethod(MoEMethodBase):
     def create_weights(self, layer: nn.Layer, **extra_weight_attrs):
-
+        num_experts = extra_weight_attrs.pop("num_experts")
+        hidden_size = extra_weight_attrs.pop("hidden_size")
+        moe_intermediate_size = extra_weight_attrs.pop("moe_intermediate_size")
         if current_platform.is_cuda():
-            self.up_gate_proj_weight_shape = [
-                layer.num_local_experts,
-                layer.hidden_size,
-                layer.moe_intermediate_size * 2,
-            ]
-            self.down_proj_weight_shape = [layer.num_local_experts, layer.moe_intermediate_size, layer.hidden_size]
+            self.up_gate_proj_weight_shape = [num_experts, hidden_size, moe_intermediate_size * 2]
+            self.down_proj_weight_shape = [num_experts, moe_intermediate_size, hidden_size]
             extra_weight_attrs = {**extra_weight_attrs, "SHARD_ID_TO_SHARDED_DIM": {"gate": 1, "down": 0, "up": 1}}
         else:
-            self.up_gate_proj_weight_shape = [
-                layer.num_local_experts,
-                layer.moe_intermediate_size * 2,
-                layer.hidden_size,
-            ]
-            self.down_proj_weight_shape = [layer.num_local_experts, layer.hidden_size, layer.moe_intermediate_size]
+            self.up_gate_proj_weight_shape = [num_experts, moe_intermediate_size * 2, hidden_size]
+            self.down_proj_weight_shape = [num_experts, hidden_size, moe_intermediate_size]
             extra_weight_attrs = {**extra_weight_attrs, "SHARD_ID_TO_SHARDED_DIM": {"gate": 0, "down": 1, "up": 0}}
 
         layer.up_gate_proj_weight = layer.create_parameter(
@@ -233,3 +238,30 @@ class UnquantizedFusedMoEMethod(MoEMethodBase):
                 "weight_need_transpose": extra_weight_attrs.get("model_format") == "torch",
             },
         )
+
+        if layer.with_bias:
+            layer.up_gate_proj_bias = layer.create_parameter(
+                shape=[layer.num_experts, layer.moe_intermediate_size * 2],
+                dtype=layer.weight_dtype,
+                default_initializer=paddle.nn.initializer.Constant(0),
+            )
+
+            layer.down_proj_bias = layer.create_parameter(
+                shape=[layer.num_experts, layer.hidden_size],
+                dtype=layer.weight_dtype,
+                default_initializer=paddle.nn.initializer.Constant(0),
+            )
+            set_weight_attrs(
+                layer.up_gate_proj_bias,
+                {
+                    "weight_loader": extra_weight_attrs.get("weight_loader", default_weight_loader(layer.fd_config)),
+                    "model_format": extra_weight_attrs.get("model_format", ""),
+                },
+            )
+            set_weight_attrs(
+                layer.down_proj_bias,
+                {
+                    "weight_loader": extra_weight_attrs.get("weight_loader", default_weight_loader(layer.fd_config)),
+                    "model_format": extra_weight_attrs.get("model_format", ""),
+                },
+            )

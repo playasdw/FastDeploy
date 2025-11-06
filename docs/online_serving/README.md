@@ -1,3 +1,5 @@
+[简体中文](../zh/online_serving/README.md)
+
 # OpenAI Protocol-Compatible API Server
 
 FastDeploy provides a service-oriented deployment solution that is compatible with the OpenAI protocol. Users can quickly deploy it using the following command:
@@ -236,6 +238,19 @@ ChatMessage:
     completion_token_ids: Optional[List[int]] = None
     prompt_tokens: Optional[str] = None
     completion_tokens: Optional[str] = None
+UsageInfo:
+    prompt_tokens: int = 0
+    total_tokens: int = 0
+    completion_tokens: Optional[int] = 0
+    prompt_tokens_details: Optional[PromptTokenUsageInfo] = None
+    completion_tokens_details: Optional[CompletionTokenUsageInfo] = None
+PromptTokenUsageInfo:
+    cached_tokens: Optional[int] = None
+    image_tokens: Optional[int] = None
+    video_tokens: Optional[int] = None
+CompletionTokenUsageInfo:
+    reasoning_tokens: Optional[int] = None
+    image_tokens: Optional[int] = None
 ToolCall:
     id: str = None
     type: Literal["function"] = "function"
@@ -412,6 +427,19 @@ CompletionResponseChoice:
     reasoning_content: Optional[str] = None
     finish_reason: Optional[Literal["stop", "length", "tool_calls"]]
     tool_calls: Optional[List[DeltaToolCall | ToolCall]] = None
+UsageInfo:
+    prompt_tokens: int = 0
+    total_tokens: int = 0
+    completion_tokens: Optional[int] = 0
+    prompt_tokens_details: Optional[PromptTokenUsageInfo] = None
+    completion_tokens_details: Optional[CompletionTokenUsageInfo] = None
+PromptTokenUsageInfo:
+    cached_tokens: Optional[int] = None
+    image_tokens: Optional[int] = None
+    video_tokens: Optional[int] = None
+CompletionTokenUsageInfo:
+    reasoning_tokens: Optional[int] = None
+    image_tokens: Optional[int] = None
 ToolCall:
     id: str = None
     type: Literal["function"] = "function"

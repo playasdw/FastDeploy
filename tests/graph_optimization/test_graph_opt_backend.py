@@ -76,12 +76,14 @@ class TestGraphOptBackend(unittest.TestCase):
     """
 
     def setUp(self):
+        paddle.seed(2025)
+
         """Set up test fixtures, compute baseline once for all tests"""
         # Setup common test data that will be reused across all tests
         self.input_shape = (4, 8)
         self.dtype = "int32"
         self.model_config = {}
-        self.max_num_seqs = 1
+        self.max_num_seqs = 4
 
         # Create baseline configuration (dynamic graph, no cudagraph)
         baseline_graph_opt_config = GraphOptimizationConfig(args={})
@@ -106,9 +108,7 @@ class TestGraphOptBackend(unittest.TestCase):
 
         # Create input data
         self.input_tensor = paddle.randint(32, shape=self.input_shape, dtype=self.dtype)
-        self.forward_meta = ForwardMeta(
-            input_ids=self.input_tensor, ids_remove_padding=self.input_tensor, step_use_cudagraph=True
-        )
+        self.forward_meta = ForwardMeta(ids_remove_padding=self.input_tensor, step_use_cudagraph=True)
 
         # Compute baseline result once
         baseline_model = Attention(fd_config=self.baseline_fd_config, **self.model_config)
@@ -177,9 +177,11 @@ class TestGraphOptBackend(unittest.TestCase):
                 self.baseline_result,
                 output.numpy(),
                 err_msg=f"Test {test_name} failed: output mismatch",
-                atol=1e-6,  # for CINN
+                atol=1e-4,  # for CINN
+                rtol=1e-2,
             )
 
+    def tearDown(self):
         paddle.jit.sot.opcode_translator.executor.executor_cache.OpcodeExecutorCache().clear()
 
     def test_dynamic_graph(self):

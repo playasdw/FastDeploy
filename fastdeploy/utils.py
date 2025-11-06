@@ -56,7 +56,9 @@ from typing import Callable, Optional
 
 # [N,2] -> every line is [config_name, enable_xxx_name]
 # Make sure enable_xxx equal to config.enable_xxx
-ARGS_CORRECTION_LIST = [["early_stop_config", "enable_early_stop"], ["graph_optimization_config", "use_cudagraph"]]
+ARGS_CORRECTION_LIST = [
+    ["early_stop_config", "enable_early_stop"],
+]
 
 FASTDEPLOY_SUBCMD_PARSER_EPILOG = (
     "Tip: Use `fastdeploy [serve|run-batch|bench <bench_type>] "
@@ -940,6 +942,37 @@ def parse_quantization(value: str):
 def get_logger(name, file_name=None, without_formater=False, print_to_console=False):
     """全局函数包装器，保持向后兼容"""
     return FastDeployLogger().get_logger(name, file_name, without_formater, print_to_console)
+
+
+def check_download_links(bos_client, links, timeout=1):
+    """
+    check bos download links
+    """
+    for link in links:
+        try:
+            if link.startswith("bos://"):
+                link = link.replace("bos://", "")
+
+            bucket_name = "/".join(link.split("/")[1:-1])
+            object_key = link.split("/")[-1]
+            response = bos_client.get_object_meta_data(bucket_name, object_key)
+            assert (
+                int(response.metadata.content_length) > 0
+            ), f"bos download length error, {response.metadata.content_length}"
+        except Exception as e:
+            return f"link {link} download error: {str(e)}"
+    return None
+
+
+def init_bos_client():
+    from baidubce.auth.bce_credentials import BceCredentials
+    from baidubce.bce_client_configuration import BceClientConfiguration
+    from baidubce.services.bos.bos_client import BosClient
+
+    cfg = BceClientConfiguration(
+        credentials=BceCredentials(envs.ENCODE_FEATURE_BOS_AK, envs.ENCODE_FEATURE_BOS_SK), endpoint="bj.bcebos.com"
+    )
+    return BosClient(cfg)
 
 
 llm_logger = get_logger("fastdeploy", "fastdeploy.log")

@@ -131,12 +131,13 @@ def get_sm_version(archs):
     Get sm version of paddle.
     """
     arch_set = set(archs)
-    try:
-        prop = paddle.device.cuda.get_device_properties()
-        cc = prop.major * 10 + prop.minor
-        arch_set.add(cc)
-    except ValueError:
-        pass
+    if len(arch_set) == 0:
+        try:
+            prop = paddle.device.cuda.get_device_properties()
+            cc = prop.major * 10 + prop.minor
+            arch_set.add(cc)
+        except ValueError:
+            pass
     return list(arch_set)
 
 
@@ -251,6 +252,7 @@ if paddle.is_compiled_with_rocm():
     )
 elif paddle.is_compiled_with_cuda():
     sources = [
+        "gpu_ops/helper.cu",
         "gpu_ops/save_with_output_msg.cc",
         "gpu_ops/get_output.cc",
         "gpu_ops/get_output_msg_with_topk.cc",
@@ -290,7 +292,6 @@ elif paddle.is_compiled_with_cuda():
         "gpu_ops/cpp_extensions.cc",
         "gpu_ops/share_external_data.cu",
         "gpu_ops/per_token_quant_fp8.cu",
-        "gpu_ops/extract_text_token_output.cu",
         "gpu_ops/update_split_fuse_input.cu",
         "gpu_ops/text_image_index_out.cu",
         "gpu_ops/text_image_gather_scatter.cu",
@@ -302,6 +303,9 @@ elif paddle.is_compiled_with_cuda():
         "gpu_ops/noaux_tc.cu",
         "gpu_ops/custom_all_reduce/all_reduce.cu",
         "gpu_ops/merge_prefill_decode_output.cu",
+        "gpu_ops/limit_thinking_content_length_v1.cu",
+        "gpu_ops/limit_thinking_content_length_v2.cu",
+        "gpu_ops/update_attn_mask_offsets.cu",
     ]
 
     # pd_disaggregation
@@ -379,7 +383,9 @@ elif paddle.is_compiled_with_cuda():
 
     if cc >= 80:
         # append_attention
-        os.system("python gpu_ops/append_attn/autogen_template_instantiation.py")
+        os.system(
+            "python utils/auto_gen_template_instantiation.py --config gpu_ops/append_attn/template_config.json --output gpu_ops/append_attn/template_instantiation/autogen"
+        )
         sources += ["gpu_ops/append_attention.cu"]
         sources += find_end_files("gpu_ops/append_attn", ".cu")
         # mla
@@ -392,6 +398,9 @@ elif paddle.is_compiled_with_cuda():
         nvcc_compile_args += ["-DENABLE_BF16"]
         # moe
         os.system("python gpu_ops/moe/moe_wna16_marlin_utils/generate_kernels.py")
+        os.system(
+            "python utils/auto_gen_template_instantiation.py --config gpu_ops/moe/template_config.json --output gpu_ops/moe/template_instantiation/autogen"
+        )
         sources += find_end_files("gpu_ops/cutlass_kernels/moe_gemm/", ".cu")
         sources += find_end_files("gpu_ops/cutlass_kernels/w4a8_moe/", ".cu")
         sources += find_end_files("gpu_ops/moe/", ".cu")
@@ -498,7 +507,7 @@ elif paddle.is_compiled_with_cuda():
             sources=sources,
             extra_compile_args={"cxx": cc_compile_args, "nvcc": nvcc_compile_args},
             libraries=["cublasLt"],
-            extra_link_args=["-lcuda"],
+            extra_link_args=["-lcuda", "-lnvidia-ml"],
         ),
         packages=find_packages(where="third_party/DeepGEMM"),
         package_dir={"": "third_party/DeepGEMM"},
@@ -538,6 +547,9 @@ elif paddle.is_compiled_with_custom_device("iluvatar_gpu"):
                 "gpu_ops/token_penalty_multi_scores.cu",
                 "gpu_ops/sample_kernels/rejection_top_p_sampling.cu",
                 "gpu_ops/sample_kernels/top_k_renorm_probs.cu",
+                "gpu_ops/text_image_index_out.cu",
+                "gpu_ops/text_image_gather_scatter.cu",
+                "gpu_ops/set_data_ipc.cu",
                 "iluvatar_ops/moe_dispatch.cu",
                 "iluvatar_ops/moe_reduce.cu",
                 "iluvatar_ops/paged_attn.cu",
@@ -596,10 +608,18 @@ elif paddle.device.is_compiled_with_custom_device("metax_gpu"):
         "gpu_ops/read_data_ipc.cu",
         "gpu_ops/dequant_int8.cu",
         "gpu_ops/share_external_data.cu",
-        "gpu_ops/extract_text_token_output.cu",
+        "gpu_ops/recover_decode_task.cu",
+        "gpu_ops/noaux_tc.cu",
+        "gpu_ops/fused_rotary_position_encoding.cu",
+        "gpu_ops/text_image_gather_scatter.cu",
+        "gpu_ops/text_image_index_out.cu",
+        "gpu_ops/get_position_ids_and_mask_encoder_batch.cu",
+        "gpu_ops/limit_thinking_content_length_v1.cu",
+        "gpu_ops/limit_thinking_content_length_v2.cu",
+        "gpu_ops/append_attn/mla_cache_kernel.cu",
+        "gpu_ops/append_attn/get_block_shape_and_split_kv_block.cu",
         "gpu_ops/moe/tritonmoe_preprocess.cu",
         "gpu_ops/moe/moe_topk_select.cu",
-        "gpu_ops/recover_decode_task.cu",
         "metax_ops/moe_dispatch.cu",
         "metax_ops/moe_ffn.cu",
         "metax_ops/moe_reduce.cu",

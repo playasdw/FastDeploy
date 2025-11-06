@@ -16,8 +16,10 @@
 
 import os
 import re
+from collections.abc import Mapping
 from contextlib import contextmanager
-from typing import Any, Optional, Union
+from dataclasses import dataclass, field
+from typing import Any, List, Optional, Union
 
 import paddle
 from paddleformers.utils.log import logger
@@ -143,9 +145,41 @@ def process_weights_after_loading(sublayers_dict: dict):
             quant_method = getattr(model_sublayer, "quant_method", None)
             if not hasattr(quant_method, "process_weights_after_loading"):
                 return
+            if param is not None and hasattr(param, "tensor_track") and param.tensor_track is None:
+                return
             if param is not None and hasattr(param, "tensor_track") and not param.tensor_track.is_fully_copied():
                 return
             quant_method.process_weights_after_loading(model_sublayer)
+
+    return fn
+
+
+@dataclass
+class WeightsMapper:
+    orig_to_new_prefix: Mapping[str, Optional[str]] = field(default_factory=dict)
+
+    def _map_name(self, key: str) -> Optional[str]:
+        for prefix, new_key in self.orig_to_new_prefix.items():
+            if key.startswith(prefix):
+                key = key.replace(prefix, new_key, 1)
+        return key
+
+    def apply(self, weight_name):
+        return self._map_name(weight_name)
+
+
+def process_weights_before_loading(
+    *, skip_prefixes: Optional[List[str]] = None, mapper: Optional[WeightsMapper] = None
+):
+    def _can_skip(weight_name):
+        return any(weight_name.startswith(p) for p in (skip_prefixes or []))
+
+    def fn(weight_name):
+        if mapper is not None:
+            weight_name = mapper.apply(weight_name)
+        if _can_skip(weight_name):
+            weight_name = None
+        return weight_name
 
     return fn
 
@@ -205,22 +239,36 @@ def is_pre_sliced_weight(model_path):
     return len(rank_dirs) > 1
 
 
+def is_paddle_support_v1_loader():
+    src_shape = [32, 32]
+    tgt_shape = [1, 32, 64]
+    src_tensor = paddle.ones(src_shape, dtype="float32")
+    tgt_tensor = paddle.zeros(tgt_shape, dtype="float32")
+    for exp_id in range(tgt_shape[0]):
+        # gate
+        gate_tgt = tgt_tensor[exp_id][..., : tgt_shape[2] // 2]
+        gate_tgt.copy_(src_tensor, False)
+        # up
+        up_tgt = tgt_tensor[exp_id][..., tgt_shape[2] // 2 :]
+        up_tgt.copy_(src_tensor, False)
+    is_same = bool(paddle.all(tgt_tensor == 1))
+    return is_same
+
+
 def v1_loader_support(fd_config):
-    _v1_no_support_archs = ["Qwen2VLForConditionalGeneration", "Qwen2_5_VLForConditionalGeneration"]
+    _v1_no_support_archs = [
+        "Qwen2VLForConditionalGeneration",
+    ]
 
     def _err_msg(msg: str) -> str:
         logger.info(msg + "; fallback to the v0 loader for model loading.")
 
-    if not current_platform.is_cuda():
-        _err_msg("v1loader currently does not support backends other than CUDA")
+    if not (current_platform.is_cuda() or current_platform.is_xpu()):
+        _err_msg("v1loader currently only support backends gpu and xpu")
         return False
 
     if is_pre_sliced_weight(fd_config.model_config.model):
         _err_msg("v1 loader currently does not support pre-sliced weights")
-        return False
-
-    if fd_config.parallel_config.use_ep:
-        _err_msg("v1 loader currently does not support expert parallelism")
         return False
 
     if envs.FD_MOE_BACKEND.lower() == "marlin":
@@ -241,6 +289,10 @@ def v1_loader_support(fd_config):
             return False
     if fd_config.model_config.architectures[0] in _v1_no_support_archs:
         _err_msg(f"v1 loader currently does not support {fd_config.model_config.architectures[0]}")
+        return False
+
+    if not is_paddle_support_v1_loader():
+        _err_msg("The installed Paddle does not support v1 loader")
         return False
     return True
 
