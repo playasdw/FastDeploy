@@ -209,7 +209,7 @@ def test_create_completion_non_stream(monkeypatch, engine_client, completion_han
         created_time,
         model_name,
         prompt_batched_token_ids,
-        text_after_process_list,
+        prompt_tokens_list,
     ):
         assert num_choices == 1
         assert prompt_batched_token_ids == [[101, 102, 103]]
@@ -237,7 +237,7 @@ def test_create_completion_stream(monkeypatch, engine_client, completion_handler
         created_time,
         model_name,
         prompt_batched_token_ids,
-        text_after_process_list,
+        prompt_tokens_list,
     ):
         assert request.stream is True
         assert num_choices == 1
@@ -288,5 +288,5 @@ def test_create_completion_parameter_error(engine_client, completion_handler):
 
     assert isinstance(response, ErrorResponse)
     assert response.error.param == "prompt"
-    assert response.error.type == "invalid_request_error"
+    assert response.error.type == "invalid_request"
     assert engine_client.semaphore.acquired == 0
